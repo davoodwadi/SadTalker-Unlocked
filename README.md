@@ -1,5 +1,6 @@
-## SadTalker-Unlocked is the image to video algorithm modified to support long videos.
+## SadTalker-Unlocked is the image to video algorithm modified to support long videos with no OOM errors.
 - The original implementation consumes memory linearly with the duration of the audio. It means a 3 minute clip needs 8 GBs of vRam; 30 minutes needs 80 GBs.
+- I have modified the script to unload the tensor from both vRAM and RAM into disk. This way the target video can be any length. No OOM errors.
 
 ## 1. Installation.
 
@@ -36,7 +37,7 @@ A video tutorial in chinese is available [here](https://www.bilibili.com/video/B
 1. Install [Python 3.8](https://www.python.org/downloads/windows/) and check "Add Python to PATH".
 2. Install [git](https://git-scm.com/download/win) manually or using [Scoop](https://scoop.sh/): `scoop install git`.
 3. Install `ffmpeg`, following [this tutorial](https://www.wikihow.com/Install-FFmpeg-on-Windows) or using [scoop](https://scoop.sh/): `scoop install ffmpeg`.
-4. Download the SadTalker repository by running `git clone https://github.com/Winfredy/SadTalker.git`.
+4. Download the SadTalker repository by running `git clone https://github.com/davoodwadi/SadTalker-Unlocked.git`.
 5. Download the checkpoints and gfpgan models in the [downloads section](#2-download-models).
 6. Run `start.bat` from Windows Explorer as normal, non-administrator, user, and a Gradio-powered WebUI demo will be started.
 
