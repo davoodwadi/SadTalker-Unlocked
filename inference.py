@@ -12,13 +12,32 @@ from src.generate_batch import get_data
 from src.generate_facerender_batch import get_facerender_data
 from src.utils.init_path import init_path
 
+from pathlib import Path
+def folder_remove(folder):
+	folder = str(folder)
+	for filename in os.listdir(folder):
+		file_path = os.path.join(folder, filename)
+		try:
+			if os.path.isfile(file_path) or os.path.islink(file_path):
+				os.unlink(file_path)
+			elif os.path.isdir(file_path):
+				shutil.rmtree(file_path)
+		except Exception as e:
+			print('Failed to delete %s. Reason: %s' % (file_path, e))
 def main(args):
     #torch.backends.cudnn.enabled = False
 
     pic_path = args.source_image
     audio_path = args.driven_audio
-    save_dir = os.path.join(args.result_dir, strftime("%Y_%m_%d_%H.%M.%S"))
-    os.makedirs(save_dir, exist_ok=True)
+    # save_dir = os.path.join(args.result_dir, strftime("%Y_%m_%d_%H.%M.%S"))
+    aud_name = Path(audio_path).stem
+    aud_folder = Path(audio_path).parent
+    
+    save_dir = aud_folder/'temp'
+    save_dir.mkdir(exist_ok=True)
+    save_fn = aud_folder/f'{aud_name}.mp4'
+    print(f'save filename {save_fn}')
+    # os.makedirs(save_dir, exist_ok=True)
     pose_style = args.pose_style
     device = args.device
     batch_size = args.batch_size
@@ -28,23 +47,27 @@ def main(args):
     ref_eyeblink = args.ref_eyeblink
     ref_pose = args.ref_pose
 
-    current_root_path = os.path.split(sys.argv[0])[0]
+    # current_root_path = os.path.split(sys.argv[0])[0]
+    current_root_path = "E:\\yt\\SadTalker"
 
     sadtalker_paths = init_path(args.checkpoint_dir, os.path.join(current_root_path, 'src/config'), args.size, args.old_version, args.preprocess)
-
+    # print(f'sadtalker_paths: {sadtalker_paths}')
+    
     #init model
     preprocess_model = CropAndExtract(sadtalker_paths, device)
 
     audio_to_coeff = Audio2Coeff(sadtalker_paths,  device)
     
     animate_from_coeff = AnimateFromCoeff(sadtalker_paths, device)
-
+    
     #crop image and extract 3dmm from image
     first_frame_dir = os.path.join(save_dir, 'first_frame_dir')
     os.makedirs(first_frame_dir, exist_ok=True)
     print('3DMM Extraction for source image')
+    
     first_coeff_path, crop_pic_path, crop_info =  preprocess_model.generate(pic_path, first_frame_dir, args.preprocess,\
                                                                              source_image_flag=True, pic_size=args.size)
+    
     if first_coeff_path is None:
         print("Can't get the coeffs of the input")
         return
@@ -84,24 +107,23 @@ def main(args):
                                 batch_size, input_yaw_list, input_pitch_list, input_roll_list,
                                 expression_scale=args.expression_scale, still_mode=args.still, preprocess=args.preprocess, size=args.size)
     
-    result = animate_from_coeff.generate(data, save_dir, pic_path, crop_info, \
-                                enhancer=args.enhancer, background_enhancer=args.background_enhancer, preprocess=args.preprocess, img_size=args.size)
-    
-    shutil.move(result, save_dir+'.mp4')
-    print('The generated video is named:', save_dir+'.mp4')
+    result, temp_dir = animate_from_coeff.generate(args, data, save_dir, pic_path, crop_info, enhancer=args.enhancer, background_enhancer=args.background_enhancer, preprocess=args.preprocess, img_size=args.size)
+    shutil.move(result, save_fn)
+    print('The generated video is named:', save_fn)
+    folder_remove(temp_dir)
 
-    if not args.verbose:
-        shutil.rmtree(save_dir)
+    # if not args.verbose:
+    #     shutil.rmtree(save_dir)
 
     
 if __name__ == '__main__':
 
     parser = ArgumentParser()  
-    parser.add_argument("--driven_audio", default='./examples/driven_audio/bus_chinese.wav', help="path to driven audio")
-    parser.add_argument("--source_image", default='./examples/source_image/full_body_1.png', help="path to source image")
+    parser.add_argument("--driven_audio", default='./rickman_feminism_200.wav', help="path to driven audio")
+    parser.add_argument("--source_image", default='./YvBK1QYAfaDPJ0KsUqa8u.png', help="path to source image")
     parser.add_argument("--ref_eyeblink", default=None, help="path to reference video providing eye blinking")
     parser.add_argument("--ref_pose", default=None, help="path to reference video providing pose")
-    parser.add_argument("--checkpoint_dir", default='./checkpoints', help="path to output")
+    parser.add_argument("--checkpoint_dir", default='E:\\yt\\SadTalker/checkpoints', help="path to output")
     parser.add_argument("--result_dir", default='./results', help="path to output")
     parser.add_argument("--pose_style", type=int, default=0,  help="input pose style from [0, 46)")
     parser.add_argument("--batch_size", type=int, default=2,  help="the batch size of facerender")
@@ -115,7 +137,7 @@ if __name__ == '__main__':
     parser.add_argument("--cpu", dest="cpu", action="store_true") 
     parser.add_argument("--face3dvis", action="store_true", help="generate 3d face and 3d landmarks") 
     parser.add_argument("--still", action="store_true", help="can crop back to the original videos for the full body aniamtion") 
-    parser.add_argument("--preprocess", default='crop', choices=['crop', 'extcrop', 'resize', 'full', 'extfull'], help="how to preprocess the images" ) 
+    parser.add_argument("--preprocess", default='extfull', choices=['crop', 'extcrop', 'resize', 'full', 'extfull'], help="how to preprocess the images" ) 
     parser.add_argument("--verbose",action="store_true", help="saving the intermedia output or not" ) 
     parser.add_argument("--old_version",action="store_true", help="use the pth other than safetensor version" ) 
 

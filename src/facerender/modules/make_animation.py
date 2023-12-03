@@ -3,6 +3,11 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 from tqdm import tqdm 
+from src.utils.paste_pic import paste_pic_stream
+import cv2
+import os
+from skimage import img_as_ubyte
+from pathlib import Path
 
 def normalize_kp(kp_source, kp_driving, kp_driving_initial, adapt_movement_scale=False,
                  use_relative_movement=False, use_relative_jacobian=False):
@@ -97,22 +102,48 @@ def keypoint_transformation(kp_canonical, he, wo_exp=False):
 
     return {'value': kp_transformed}
 
+def remove_directory_contents(directory_path):
+    # Check if the directory exists
+    if not os.path.exists(directory_path):
+        print(f"Directory '{directory_path}' does not exist.")
+        return
 
+    # Iterate over the files in the directory and remove them
+    for file_name in os.listdir(directory_path):
+        file_path = os.path.join(directory_path, file_name)
+        try:
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+                # print(f"Removed file: {file_path}")
+            elif os.path.isdir(file_path):
+                # Recursively remove subdirectories
+                remove_directory_contents(file_path)
+                # Remove the empty directory
+                os.rmdir(file_path)
+                print(f"Removed directory: {file_path}")
+        except Exception as e:
+            print(f"Error removing {file_path}: {e}")
 
-def make_animation(source_image, source_semantics, target_semantics,
+def make_animation(args, audio_path, save_dir, video_name, img_size, crop_info, source_image, source_semantics, target_semantics,
                             generator, kp_detector, he_estimator, mapping, 
                             yaw_c_seq=None, pitch_c_seq=None, roll_c_seq=None,
                             use_exp=True, use_half=False):
+    import tempfile
+    temp_dir = tempfile.gettempdir()
+    temp_dir = Path(temp_dir)/'sad'
+    # temp_dir = Path.cwd()/'sad'
+    print('temp dir',temp_dir)
+    frame_dir = temp_dir/'frames'
+    remove_directory_contents(str(temp_dir))
+    frame_dir.mkdir(exist_ok=True, parents=True)
+    print(f'tempdir: {temp_dir}\nframedir: {frame_dir}')
     with torch.no_grad():
-        predictions = []
-
         kp_canonical = kp_detector(source_image)
         he_source = mapping(source_semantics)
         kp_source = keypoint_transformation(kp_canonical, he_source)
     
         for frame_idx in tqdm(range(target_semantics.shape[1]), 'Face Renderer:'):
             # still check the dimension
-            # print(target_semantics.shape, source_semantics.shape)
             target_semantics_frame = target_semantics[:, frame_idx]
             he_driving = mapping(target_semantics_frame)
             if yaw_c_seq is not None:
@@ -126,17 +157,49 @@ def make_animation(source_image, source_semantics, target_semantics,
                 
             kp_norm = kp_driving
             out = generator(source_image, kp_source=kp_source, kp_driving=kp_norm)
-            '''
-            source_image_new = out['prediction'].squeeze(1)
-            kp_canonical_new =  kp_detector(source_image_new)
-            he_source_new = he_estimator(source_image_new) 
-            kp_source_new = keypoint_transformation(kp_canonical_new, he_source_new, wo_exp=True)
-            kp_driving_new = keypoint_transformation(kp_canonical_new, he_driving, wo_exp=True)
-            out = generator(source_image_new, kp_source=kp_source_new, kp_driving=kp_driving_new)
-            '''
-            predictions.append(out['prediction'])
-        predictions_ts = torch.stack(predictions, dim=1)
-    return predictions_ts
+            video=[]
+            for img in out['prediction']:
+                image = np.transpose(img.data.cpu().numpy(), [1, 2, 0]).astype(np.float32)
+                video.append(image)
+            result = img_as_ubyte(video)
+            original_size = crop_info[0]
+            if original_size:
+                # print(f'original size: {original_size}. resizing...')
+                result = [ cv2.resize(result_i,(img_size, int(img_size * original_size[1]/original_size[0]) )) for result_i in result ]
+            for i, frame in enumerate(result):
+                cv2.imwrite(str(frame_dir/f'{i}_{frame_idx:04d}.png'), frame[:,:,::-1])
+
+        # write png to mp4
+        size1, size2= frame.shape[:2]
+        path = os.path.join(str(save_dir), 'temp_' + video_name + '.avi')
+        print(f'video size {size1, size2}')
+        openVideo = cv2.VideoWriter(path, 
+                                cv2.VideoWriter_fourcc(*'DIVX'), 25, (size2, size1))
+        # openVideo = cv2.VideoWriter(path, -1, 25, (size2, size1))
+        for pngFile in frame_dir.iterdir():
+            if pngFile.suffix!=".png": continue
+            f = cv2.imread(str(pngFile))
+            # print(f)
+            openVideo.write(f)
+        openVideo.release()
+        print(f'succesfully wrote png to mp4 at {path}')
+        # video_name_full = video_name + '_full.mp4'
+        # full_video_path = temp_dir/video_name_full
+        # print(f'full_video_path final video: {full_video_path}')
+        # new_audio_path = audio_path
+        # return_path = full_video_path
+        print('Pasting faces back into frame (SeamlessClone)')
+        full_video_path = paste_pic_stream(temp_dir, path, args.source_image, crop_info, extended_crop= True if 'ext' in args.preprocess.lower() else False)
+        print(f'full video path {full_video_path}')
+        full_video_path_final = temp_dir/f'{video_name}_full_audio.mp4'
+        #     predictions.append(out['prediction'])
+        # predictions_ts = torch.stack(predictions, dim=1)
+        import subprocess
+        import platform
+        print(f'final video {full_video_path_final}')
+        command = 'ffmpeg -y -init_hw_device cuda -hwaccel nvdec -hwaccel_output_format cuda -i {} -i {} -c:v h264_nvenc -preset:v p1 {}'.format(audio_path, str(full_video_path), str(full_video_path_final))
+        subprocess.call(command, shell=platform.system() != 'Windows')
+    return full_video_path_final, temp_dir
 
 class AnimateModel(torch.nn.Module):
     """
