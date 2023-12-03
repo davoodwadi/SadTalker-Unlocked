@@ -1,3 +1,6 @@
+## SadTalker Unlocked is the image to video algorithm modified to support long videos.
+The original implementation consumes memory linearly with the duration of the audio. It means a 3 minute clip needs 8 GBs of vRam; 30 minutes needs 80 GBs.
+
 <div align="center">
 
 <img src='https://user-images.githubusercontent.com/4397546/229094115-862c747e-7397-4b54-ba4a-bd368bfe2e0f.png' width='500px'/>
